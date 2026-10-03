@@ -24,16 +24,29 @@
 (function(){
   var status = document.getElementById('status');
   var linkEl = document.getElementById('link');
-  var API = 'https://api.github.com/repos/woaiyudian/agent-redirect/contents/current.txt?t=' + Date.now();
-  fetch(API)
-    .then(function(r){ if(!r.ok){ throw new Error('HTTP ' + r.status); } return r.json(); })
-    .then(function(d){
-      var b64 = (d.content || '').replace(/\s+/g, '');
-      var txt = atob(b64).trim();
-      if(!/^https?:\/\/\S+$/.test(txt)){ throw new Error('bad url'); }
-      location.href = txt;
+  var ts = Date.now();
+  // 通道1：GitHub API（实时、权威）
+  function fromApi(){
+    return fetch('https://api.github.com/repos/woaiyudian/agent-redirect/contents/current.txt?t=' + ts, {cache:'no-store'})
+      .then(function(r){ if(!r.ok){ throw new Error('api ' + r.status); } return r.json(); })
+      .then(function(d){ return atob((d.content || '').replace(/\s+/g, '')).trim(); });
+  }
+  // 通道2：GitHub Pages 的 current.txt（国内访问更稳，可能最多滞后10分钟）
+  function fromPage(){
+    return fetch('https://woaiyudian.github.io/agent-redirect/current.txt?t=' + ts, {cache:'no-store'})
+      .then(function(r){ if(!r.ok){ throw new Error('page ' + r.status); } return r.text(); })
+      .then(function(t){ return t.trim(); });
+  }
+  function withTimeout(p, ms){
+    return Promise.race([p, new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, ms); })]);
+  }
+  withTimeout(fromApi(), 6000)
+    .catch(function(){ return withTimeout(fromPage(), 6000); })
+    .then(function(u){
+      if(!/^https?:\/\/\S+$/.test(u)){ throw new Error('bad url'); }
+      location.href = u;
     })
-    .catch(function(e){
+    .catch(function(){
       status.textContent = '获取最新地址失败，请稍后刷新重试。';
       linkEl.innerHTML = '如果长时间无法打开，请到电脑端查看当前地址。';
     });
